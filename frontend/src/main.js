@@ -1,7 +1,7 @@
 import { createApp } from 'vue';
 import App from './App.vue';
 import router from './router';
-
+import api from '@/plugins/axios'
 import Aura from '@primeuix/themes/aura';
 import PrimeVue from 'primevue/config';
 import ConfirmationService from 'primevue/confirmationservice';
@@ -11,7 +11,7 @@ import '@/assets/tailwind.css';
 import '@/assets/styles.scss';
 
 const app = createApp(App);
-
+app.config.globalProperties.$api = api
 app.use(router);
 app.use(PrimeVue, {
     theme: {

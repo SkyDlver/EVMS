@@ -100,27 +100,25 @@ class EmployeeService {
     }
 
     fun createEmployee(request: EmployeeUpdateRequest): EmployeeResponse = transaction {
-        val deptId = request.departmentId ?: throw IllegalArgumentException("departmentId is required")
-
-        // Duplicate check: same first, last, middle (nullable), same department
+        // Duplicate check: same first, last, middle (nullable)
         val dupExists = Employees.select {
             (Employees.firstName eq request.firstName) and
                     (Employees.lastName eq request.lastName) and
                     (if (request.middleName.isNullOrBlank())
                         Employees.middleName.isNull() or (Employees.middleName eq "")
                     else
-                        Employees.middleName eq request.middleName) and
-                    (Employees.departmentId eq EntityID(deptId, Departments)) // must wrap as EntityID here
+                        Employees.middleName eq request.middleName)
         }.limit(1).any()
 
-        if (dupExists) throw IllegalArgumentException("Duplicate employee exists in the same department")
+        if (dupExists) throw IllegalArgumentException("Duplicate employee exists with the same name")
 
-        // Create new employee
+        val deptId = request.departmentId ?: throw IllegalArgumentException("departmentId is required")
+
         val employee = Employee.new {
             firstName = request.firstName
             lastName = request.lastName
             middleName = request.middleName
-            departmentId = EntityID(deptId, Departments) // correct usage here
+            departmentId = EntityID(deptId, Departments)
             roleInCompany = request.roleInCompany
             hiredAt = request.hiredAt ?: java.time.LocalDate.now()
             isOnHoliday = request.isOnHoliday
@@ -137,6 +135,7 @@ class EmployeeService {
             isOnHoliday = employee.isOnHoliday
         )
     }
+
 
 
     fun deleteEmployee(employeeId: Int) = transaction {

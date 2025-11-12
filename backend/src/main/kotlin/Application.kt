@@ -12,6 +12,7 @@ import org.jetbrains.exposed.sql.Database
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.transactions.transaction
+import org.slf4j.event.Level
 import team.mediagroup.models.Departments
 import team.mediagroup.models.Employees
 import team.mediagroup.models.HolidayHistories
@@ -21,6 +22,9 @@ import team.mediagroup.models.Users
 import team.mediagroup.services.AdminService
 import team.mediagroup.services.AuthService
 import team.mediagroup.services.EmployeeService
+import io.ktor.server.plugins.cors.routing.*
+import io.ktor.http.*
+import io.ktor.server.plugins.calllogging.CallLogging
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
@@ -32,7 +36,21 @@ fun Application.module() {
     install(ContentNegotiation) {
         json()
     }
+    install(CallLogging) {
+        level = Level.INFO // or Level.DEBUG for more detail
+        filter { call -> true } // log all requests
+    }
 
+    install(CORS) {
+        anyHost()  // for development only
+        allowCredentials = true
+        allowHeader(HttpHeaders.ContentType)
+        allowHeader(HttpHeaders.Authorization)
+        allowMethod(HttpMethod.Get)
+        allowMethod(HttpMethod.Post)
+        allowMethod(HttpMethod.Put)
+        allowMethod(HttpMethod.Delete)
+    }
     // Initialize database connection
     Database.connect(
         url = "jdbc:postgresql://localhost:5432/evms_db",
@@ -52,7 +70,7 @@ fun Application.module() {
     }
     install(io.ktor.server.plugins.statuspages.StatusPages) {
         exception<Throwable> { call, cause ->
-            cause.printStackTrace() // print in console
+            cause.printStackTrace()
             call.respondText("Server error: ${cause.message}", status = io.ktor.http.HttpStatusCode.InternalServerError)
         }
     }
@@ -79,6 +97,5 @@ fun Application.module() {
         }
     }
 
-    // ✅ Load all routes (from Routing.kt)
     configureRouting(authService, adminService, employeeService)
 }
