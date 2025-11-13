@@ -1,9 +1,11 @@
 package team.mediagroup.models
 
-import team.mediagroup.models.Role
+import kotlinx.serialization.Serializable
 
+@Serializable
 data class UserPrincipal(
     val id: Int,
     val role: Role,
-    val departmentId: Int?
+    val departmentId: Int? = null,
+    val username: String
 )

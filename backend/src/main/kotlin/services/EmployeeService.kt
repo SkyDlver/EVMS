@@ -1,5 +1,7 @@
 package team.mediagroup.services
 
+import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.sql.decimalParam
 import team.mediagroup.dto.EmployeeResponse
 import team.mediagroup.dto.EmployeeUpdateRequest
 import team.mediagroup.mappers.toResponse
@@ -8,70 +10,113 @@ import team.mediagroup.models.Employee
 import team.mediagroup.models.Role
 import team.mediagroup.models.UserPrincipal
 import team.mediagroup.repositories.EmployeeRepository
+import org.jetbrains.exposed.sql.transactions.transaction
+import team.mediagroup.models.Employees
 import java.time.LocalDate
 
 class EmployeeService(
     private val repository: EmployeeRepository
 ) {
 
-    fun getEmployeesForUser(user: UserPrincipal): List<EmployeeResponse> {
+    // Get employees with optional pagination/filtering
+    fun getEmployeesForUser(
+        user: UserPrincipal,
+        departmentId: Int? = null,
+        page: Int = 1,
+        size: Int = 50,
+        sort: Column<*> = Employees.id
+    ): List<EmployeeResponse> = transaction {
         val employees = when (user.role) {
-            Role.ADMIN -> repository.findAll()
+            Role.ADMIN -> repository.findAll(page = page, size = size, sort = sort)
             Role.HR, Role.VIEWER -> {
-                val deptId = user.departmentId ?: return emptyList()
-                repository.findByDepartment(deptId)
+                val deptId = departmentId ?: user.departmentId ?: return@transaction emptyList()
+                repository.findByDepartment(deptId, page = page, size = size, sort = sort)
             }
         }
-        return employees.map { it.toResponse() }
+        employees.map { it.toResponse() }
     }
 
-    fun getEmployeeById(id: Int): Employee? {
-        return repository.findById(id)
+
+
+    // Get single employee
+    fun getEmployeeById(id: Int): EmployeeResponse? = transaction {
+        val employee = repository.findById(id) ?: return@transaction null
+        employee.toResponse()
     }
 
-    fun canView(user: UserPrincipal, employee: Employee): Boolean = when (user.role) {
-        Role.ADMIN -> true
-        Role.HR, Role.VIEWER -> user.departmentId == employee.department.id.value
+    fun canView(user: UserPrincipal, employee: EmployeeResponse): Boolean =
+        when (user.role) {
+            Role.ADMIN -> true
+            Role.HR, Role.VIEWER -> user.departmentId == employee.departmentId
+        }
+
+    fun canEdit(user: UserPrincipal, employee: EmployeeResponse): Boolean =
+        when (user.role) {
+            Role.ADMIN -> true
+            Role.HR -> user.departmentId == employee.departmentId
+            else -> false
+        }
+
+    // Full update with logging
+    fun updateEmployee(employeeId: Int, request: EmployeeUpdateRequest, principal: UserPrincipal): EmployeeResponse = transaction {
+        val employee = repository.findById(employeeId) ?: throw IllegalArgumentException("Employee not found")
+
+        val deptId = request.departmentId ?: employee.department.id.value
+        if (repository.existsDuplicate(request.firstName, request.lastName, request.middleName, deptId, employee.id.value))
+            throw IllegalArgumentException("Duplicate employee exists in the same department")
+
+        val updated = repository.update(employee) {
+            firstName = request.firstName
+            lastName = request.lastName
+            middleName = request.middleName
+            department = Department[deptId]
+            roleInCompany = request.roleInCompany
+            isOnHoliday = request.isOnHoliday
+        }
+
+        // Audit log
+        println("User ${principal.id} updated employee ${employee.id.value}")
+
+        updated.toResponse()
     }
 
-    fun canEdit(user: UserPrincipal, employee: Employee): Boolean = when (user.role) {
-        Role.ADMIN -> true
-        Role.HR -> user.departmentId == employee.department.id.value
-        else -> false
-    }
+    // Partial update (PATCH) with logging
+    fun updateEmployeePartial(employeeId: Int, request: EmployeeUpdateRequest, principal: UserPrincipal): EmployeeResponse = transaction {
+        val employee = repository.findById(employeeId) ?: throw IllegalArgumentException("Employee not found")
 
-    fun updateEmployee(employee: Employee, updateRequest: EmployeeUpdateRequest): EmployeeResponse {
-        val deptId = updateRequest.departmentId ?: employee.department.id.value
+        val deptId = request.departmentId ?: employee.department.id.value
 
         if (repository.existsDuplicate(
-                updateRequest.firstName,
-                updateRequest.lastName,
-                updateRequest.middleName,
+                request.firstName.takeIf { it.isNotBlank() } ?: employee.firstName,
+                request.lastName.takeIf { it.isNotBlank() } ?: employee.lastName,
+                request.middleName ?: employee.middleName,
                 deptId,
                 employee.id.value
             )
         ) throw IllegalArgumentException("Duplicate employee exists in the same department")
 
         val updated = repository.update(employee) {
-            firstName = updateRequest.firstName
-            lastName = updateRequest.lastName
-            middleName = updateRequest.middleName
+            firstName = request.firstName.takeIf { it.isNotBlank() } ?: firstName
+            lastName = request.lastName.takeIf { it.isNotBlank() } ?: lastName
+            middleName = request.middleName ?: middleName
             department = Department[deptId]
-            roleInCompany = updateRequest.roleInCompany
-            isOnHoliday = updateRequest.isOnHoliday
+            roleInCompany = request.roleInCompany.takeIf { it.isNotBlank() } ?: roleInCompany
+            isOnHoliday = request.isOnHoliday
         }
 
-        return updated.toResponse()
+        println("User ${principal.id} partially updated employee ${employee.id.value}")
+
+        updated.toResponse()
     }
 
-    fun createEmployee(request: EmployeeUpdateRequest): EmployeeResponse {
+    // Create employee with validation and audit
+    fun createEmployee(request: EmployeeUpdateRequest, principal: UserPrincipal): EmployeeResponse = transaction {
         val deptId = request.departmentId ?: throw IllegalArgumentException("departmentId is required")
-
-        if (repository.existsDuplicate(request.firstName, request.lastName, request.middleName, deptId))
+        // Check for duplicate first
+        if (repository.existsDuplicate(request.firstName, request.lastName, request.middleName, deptId)) {
             throw IllegalArgumentException("Duplicate employee exists in the same department")
-
+        }
         val hiredDate = request.hiredAt ?: LocalDate.now()
-
         val employee = repository.createEmployee(
             firstName = request.firstName,
             lastName = request.lastName,
@@ -82,10 +127,23 @@ class EmployeeService(
             isOnHoliday = request.isOnHoliday
         )
 
-        return employee.toResponse()
+        println("User ${principal.id} created employee ${employee.id.value}")
+
+        employee.toResponse()
     }
 
-    fun deleteEmployee(employeeId: Int) {
+    // Delete employee with audit
+    fun deleteEmployee(employeeId: Int, principal: UserPrincipal) = transaction {
         repository.delete(employeeId)
+        println("User ${principal.id} deleted employee $employeeId")
+    }
+
+    // Validation helper
+    fun validateEmployeeRequest(request: EmployeeUpdateRequest): List<String> {
+        val errors = mutableListOf<String>()
+        if (request.firstName.isBlank()) errors.add("firstName is required")
+        if (request.lastName.isBlank()) errors.add("lastName is required")
+        if (request.roleInCompany.isBlank()) errors.add("roleInCompany is required")
+        return errors
     }
 }

@@ -5,21 +5,38 @@ import io.ktor.server.auth.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.jetbrains.exposed.sql.Column
 import team.mediagroup.dto.EmployeeUpdateRequest
 import team.mediagroup.models.Role
 import team.mediagroup.models.UserPrincipal
 import team.mediagroup.services.EmployeeService
 import team.mediagroup.mappers.toResponse
+import team.mediagroup.models.Employees
 
 fun Route.employeeRoutes(employeeService: EmployeeService) {
     authenticate("auth-jwt") {
         route("/api/employees") {
 
-            // GET /api/employees
+            // GET /api/employees?departmentId=&page=&size=&sort=
             get {
                 val principal = call.principal<UserPrincipal>()!!
-                val employees = employeeService.getEmployeesForUser(principal)
-                call.respond(employees)
+
+                val departmentId = call.request.queryParameters["departmentId"]?.toIntOrNull()
+                val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
+                val size = call.request.queryParameters["size"]?.toIntOrNull() ?: 50
+                val sortParam = call.request.queryParameters["sort"] ?: "id"
+
+                // Map string to actual Exposed Column
+                val sortColumn: Column<*> = when (sortParam.lowercase()) {
+                    "firstname" -> Employees.firstName
+                    "lastname" -> Employees.lastName
+                    "hiredat" -> Employees.hiredAt
+                    "departmentid" -> Employees.departmentId
+                    else -> Employees.id
+                }
+
+                val employees = employeeService.getEmployeesForUser(principal, departmentId, page, size, sortColumn)
+                call.respond(HttpStatusCode.OK, employees)
             }
 
             // GET /api/employees/{id}
@@ -35,49 +52,80 @@ fun Route.employeeRoutes(employeeService: EmployeeService) {
                     return@get call.respondText("Not allowed", status = HttpStatusCode.Forbidden)
                 }
 
-                call.respond(employee.toResponse())
+                call.respond(HttpStatusCode.OK, employee)
             }
 
-            // POST /api/employees  → create new employee
+            // POST /api/employees
             post {
                 val principal = call.principal<UserPrincipal>()!!
-                if (principal.role != Role.ADMIN && principal.role != Role.HR) {
+                if (principal.role !in listOf(Role.ADMIN, Role.HR)) {
                     return@post call.respondText("Not allowed", status = HttpStatusCode.Forbidden)
                 }
 
                 val request = call.receive<EmployeeUpdateRequest>()
 
+                // Validation
+                val errors = employeeService.validateEmployeeRequest(request)
+                if (errors.isNotEmpty()) {
+                    return@post call.respond(HttpStatusCode.BadRequest, mapOf("errors" to errors))
+                }
+
                 try {
-                    val newEmployee = employeeService.createEmployee(request)
+                    val newEmployee = employeeService.createEmployee(request, principal)
                     call.respond(HttpStatusCode.Created, newEmployee)
                 } catch (e: IllegalArgumentException) {
-                    call.respondText(e.message ?: "Invalid data", status = HttpStatusCode.BadRequest)
+                    // Here duplicate or missing department errors will be caught
+                    call.respond(HttpStatusCode.BadRequest, mapOf("error" to e.message))
+                } catch (e: Exception) {
+                    call.application.environment.log.error("Failed to create employee", e)
+                    call.respond(HttpStatusCode.InternalServerError, "Failed to create employee")
                 }
             }
 
-            // PUT /api/employees/{id}  → update employee (REST-compliant)
+            // PUT /api/employees/{id}
             put("/{id}") {
                 val principal = call.principal<UserPrincipal>()!!
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@put call.respondText("Invalid ID", status = HttpStatusCode.BadRequest)
 
-                val employee = employeeService.getEmployeeById(id)
-                    ?: return@put call.respondText("Employee not found", status = HttpStatusCode.NotFound)
+                val request = call.receive<EmployeeUpdateRequest>()
 
-                if (!employeeService.canEdit(principal, employee)) {
-                    return@put call.respondText("Not allowed", status = HttpStatusCode.Forbidden)
+                val errors = employeeService.validateEmployeeRequest(request)
+                if (errors.isNotEmpty()) {
+                    return@put call.respond(HttpStatusCode.BadRequest, mapOf("errors" to errors))
                 }
 
-                val updateRequest = call.receive<EmployeeUpdateRequest>()
-
                 try {
-                    val updated = employeeService.updateEmployee(employee, updateRequest)
-                    call.respond(HttpStatusCode.OK, updated)
-                } catch (e: IllegalArgumentException) {
-                    call.respondText(e.message ?: "Invalid data", status = HttpStatusCode.BadRequest)
+                    val employeeBeforeUpdate = employeeService.getEmployeeById(id)
+                        ?: return@put call.respondText("Employee not found", status = HttpStatusCode.NotFound)
+
+                    if (!employeeService.canEdit(principal, employeeBeforeUpdate)) {
+                        return@put call.respondText("Not allowed", status = HttpStatusCode.Forbidden)
+                    }
+
+                    val updatedEmployee = employeeService.updateEmployee(id, request, principal)
+                    call.respond(HttpStatusCode.OK, updatedEmployee)
+                } catch (e: Exception) {
+                    call.application.environment.log.error("Failed to update employee", e)
+                    call.respond(HttpStatusCode.InternalServerError, "Failed to update employee")
                 }
             }
 
+            // PATCH /api/employees/{id} → partial update
+            patch("/{id}") {
+                val principal = call.principal<UserPrincipal>()!!
+                val id = call.parameters["id"]?.toIntOrNull()
+                    ?: return@patch call.respondText("Invalid ID", status = HttpStatusCode.BadRequest)
+
+                val request = call.receive<EmployeeUpdateRequest>()
+                try {
+                    val updatedEmployee = employeeService.updateEmployeePartial(id, request, principal)
+                    call.respond(HttpStatusCode.OK, updatedEmployee)
+                } catch (e: Exception) {
+                    call.application.environment.log.error("Failed to partially update employee", e)
+                    call.respond(HttpStatusCode.InternalServerError, "Failed to update employee")
+                }
+            }
 
             // DELETE /api/employees/{id}
             delete("/{id}") {
@@ -85,15 +133,20 @@ fun Route.employeeRoutes(employeeService: EmployeeService) {
                 val id = call.parameters["id"]?.toIntOrNull()
                     ?: return@delete call.respondText("Invalid ID", status = HttpStatusCode.BadRequest)
 
-                val employee = employeeService.getEmployeeById(id)
-                    ?: return@delete call.respondText("Employee not found", status = HttpStatusCode.NotFound)
+                try {
+                    val employee = employeeService.getEmployeeById(id)
+                        ?: return@delete call.respondText("Employee not found", status = HttpStatusCode.NotFound)
 
-                if (principal.role != Role.ADMIN && principal.role != Role.HR) {
-                    return@delete call.respondText("Not allowed", status = HttpStatusCode.Forbidden)
+                    if (principal.role !in listOf(Role.ADMIN, Role.HR)) {
+                        return@delete call.respondText("Not allowed", status = HttpStatusCode.Forbidden)
+                    }
+
+                    employeeService.deleteEmployee(id, principal)
+                    call.respond(HttpStatusCode.OK, "Deleted successfully")
+                } catch (e: Exception) {
+                    call.application.environment.log.error("Failed to delete employee", e)
+                    call.respond(HttpStatusCode.InternalServerError, "Failed to delete employee")
                 }
-
-                employeeService.deleteEmployee(id)
-                call.respondText("Deleted successfully", status = HttpStatusCode.OK)
             }
         }
     }

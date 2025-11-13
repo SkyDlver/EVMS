@@ -37,7 +37,7 @@ fun Route.authRoutes(authService: AuthService, ) {
         // 🔹 PROTECTED ENDPOINT (requires JWT)
         authenticate("auth-jwt") {
             get("/users/me") {
-                val principal = call.principal<UserPrincipal>()
+                val principal = call.principal<UserPrincipal>()!!
                 if (principal == null) {
                     call.respond(HttpStatusCode.Unauthorized, "Invalid or missing token")
                     return@get

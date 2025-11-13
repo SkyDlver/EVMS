@@ -10,11 +10,20 @@ import team.mediagroup.models.*
 
 class EmployeeRepository {
 
-    fun findAll(): List<Employee> = transaction { Employee.all().toList() }
-
-    fun findByDepartment(departmentId: Int): List<Employee> = transaction {
-        Employee.find { Employees.departmentId eq departmentId }.toList()
+    fun findAll(page: Int = 1, size: Int = 50, sort: Column<*> = Employees.id): List<Employee> = transaction {
+        Employee.all()
+            .orderBy(sort to SortOrder.ASC)
+            .limit(size, offset = ((page - 1) * size).toLong())
+            .toList()
     }
+
+    fun findByDepartment(departmentId: Int, page: Int = 1, size: Int = 50, sort: Column<*> = Employees.id): List<Employee> = transaction {
+        Employee.find { Employees.departmentId eq departmentId }
+            .orderBy(sort to SortOrder.ASC)
+            .limit(size, offset = ((page - 1) * size).toLong())
+            .toList()
+    }
+
 
     fun findById(id: Int): Employee? = transaction {
         Employee.findById(id)

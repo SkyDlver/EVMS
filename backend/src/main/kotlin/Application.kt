@@ -92,11 +92,21 @@ fun Application.module() {
                 val userId = credential.payload.getClaim("userId").asInt()
                 val roleStr = credential.payload.getClaim("role").asString()
                 if (userId != null && roleStr != null) {
-                    val deptId = transaction {
+                    val userData = transaction {
                         Users.select { Users.id eq userId }
-                            .singleOrNull()?.get(Users.departmentId)
+                            .singleOrNull()
                     }
-                    UserPrincipal(id = userId, role = Role.valueOf(roleStr), departmentId = deptId)
+
+                    if (userData != null) {
+                        val deptId = userData[Users.departmentId]
+                        val username = userData[Users.username]
+                        UserPrincipal(
+                            id = userId,
+                            role = Role.valueOf(roleStr),
+                            departmentId = deptId,
+                            username = username
+                        )
+                    } else null
                 } else null
             }
         }
