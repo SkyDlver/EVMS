@@ -8,10 +8,10 @@ import team.mediagroup.models.*
 object DatabaseFactory {
     fun init() {
         Database.connect(
-            url = "jdbc:postgresql://localhost:5432/evms",
+            url = "jdbc:postgresql://localhost:5432/evms_db",
             driver = "org.postgresql.Driver",
             user = "postgres",
-            password = "yourpassword"
+            password = "1234"
         )
 
         transaction {

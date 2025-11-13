@@ -8,23 +8,22 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.response.*
-import org.jetbrains.exposed.sql.Database
+import io.ktor.server.plugins.cors.routing.*
+import io.ktor.http.*
+import io.ktor.server.plugins.calllogging.CallLogging
 import org.jetbrains.exposed.sql.SchemaUtils
 import org.jetbrains.exposed.sql.select
 import org.jetbrains.exposed.sql.transactions.transaction
 import org.slf4j.event.Level
-import team.mediagroup.models.Departments
-import team.mediagroup.models.Employees
-import team.mediagroup.models.HolidayHistories
-import team.mediagroup.models.Role
-import team.mediagroup.models.UserPrincipal
-import team.mediagroup.models.Users
-import team.mediagroup.services.AdminService
+import org.koin.ktor.plugin.Koin
+import org.koin.logger.slf4jLogger
+import org.koin.ktor.ext.inject
+import team.mediagroup.database.DatabaseFactory
+import team.mediagroup.di.appModule
+import team.mediagroup.models.*
 import team.mediagroup.services.AuthService
+import team.mediagroup.services.AdminService
 import team.mediagroup.services.EmployeeService
-import io.ktor.server.plugins.cors.routing.*
-import io.ktor.http.*
-import io.ktor.server.plugins.calllogging.CallLogging
 
 fun main() {
     embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
@@ -33,16 +32,29 @@ fun main() {
 }
 
 fun Application.module() {
-    install(ContentNegotiation) {
-        json()
-    }
-    install(CallLogging) {
-        level = Level.INFO // or Level.DEBUG for more detail
-        filter { call -> true } // log all requests
+
+    // Initialize database
+    DatabaseFactory.init()
+
+    // Install Koin for DI
+    install(Koin) {
+        slf4jLogger()
+        modules(appModule)
     }
 
+    // Inject services via Koin
+    val authService: AuthService by inject()
+    val adminService: AdminService by inject()
+    val employeeService: EmployeeService by inject()
+
+    // Install standard Ktor features
+    install(ContentNegotiation) { json() }
+    install(CallLogging) {
+        level = Level.INFO
+        filter { true }
+    }
     install(CORS) {
-        anyHost()  // for development only
+        anyHost()
         allowCredentials = true
         allowHeader(HttpHeaders.ContentType)
         allowHeader(HttpHeaders.Authorization)
@@ -51,14 +63,8 @@ fun Application.module() {
         allowMethod(HttpMethod.Put)
         allowMethod(HttpMethod.Delete)
     }
-    // Initialize database connection
-    Database.connect(
-        url = "jdbc:postgresql://localhost:5432/evms_db",
-        driver = "org.postgresql.Driver",
-        user = "postgres",
-        password = "1234"
-    )
 
+    // Create tables if they don't exist
     transaction {
         println("Creating tables...")
         SchemaUtils.create(
@@ -68,17 +74,16 @@ fun Application.module() {
             HolidayHistories
         )
     }
+
+    // Global error handling
     install(io.ktor.server.plugins.statuspages.StatusPages) {
         exception<Throwable> { call, cause ->
             cause.printStackTrace()
             call.respondText("Server error: ${cause.message}", status = io.ktor.http.HttpStatusCode.InternalServerError)
         }
     }
-    val jwtSecret = "super-secret-key"
-    val authService = AuthService(jwtSecret)
-    val adminService = AdminService(authService)
-    val employeeService = EmployeeService()
 
+    // JWT authentication
     install(Authentication) {
         jwt("auth-jwt") {
             realm = "evms-app"
@@ -97,5 +102,6 @@ fun Application.module() {
         }
     }
 
+    // Configure routing with injected services
     configureRouting(authService, adminService, employeeService)
 }
