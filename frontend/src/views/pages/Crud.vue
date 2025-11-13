@@ -1,135 +1,115 @@
 <script setup>
-import { ProductService } from '@/service/ProductService';
-import { FilterMatchMode } from '@primevue/core/api';
+import { ref, onMounted } from 'vue';
 import { useToast } from 'primevue/usetoast';
-import { onMounted, ref } from 'vue';
-
-onMounted(() => {
-    ProductService.getProducts().then((data) => (products.value = data));
-});
+import { EmployeeService } from '@/service/EmployeeService';
+import { FilterMatchMode } from '@primevue/core/api';
+import DataTable from 'primevue/datatable';
+import Column from 'primevue/column';
+import Toolbar from 'primevue/toolbar';
+import Button from 'primevue/button';
+import InputText from 'primevue/inputtext';
+import Dialog from 'primevue/dialog';
+import Checkbox from 'primevue/checkbox';
+import Password from 'primevue/password';
 
 const toast = useToast();
-const dt = ref();
-const products = ref();
-const productDialog = ref(false);
-const deleteProductDialog = ref(false);
-const deleteProductsDialog = ref(false);
-const product = ref({});
-const selectedProducts = ref();
+const dt = ref(null);
+const employees = ref([]);
+const employeeDialog = ref(false);
+const deleteEmployeeDialog = ref(false);
+const deleteEmployeesDialog = ref(false);
+const employee = ref({});
+const selectedEmployees = ref([]);
+const submitted = ref(false);
 const filters = ref({
     global: { value: null, matchMode: FilterMatchMode.CONTAINS }
 });
-const submitted = ref(false);
-const statuses = ref([
-    { label: 'INSTOCK', value: 'instock' },
-    { label: 'LOWSTOCK', value: 'lowstock' },
-    { label: 'OUTOFSTOCK', value: 'outofstock' }
-]);
 
-function formatCurrency(value) {
-    if (value) return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-    return;
+// Load employees on mount
+onMounted(() => loadEmployees());
+
+async function loadEmployees() {
+    try {
+        const data = await EmployeeService.getEmployees();
+        employees.value = Array.isArray(data) ? data : []; // ensure array
+    } catch (err) {
+        toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to load employees', life: 3000 });
+        console.error(err);
+    }
 }
 
 function openNew() {
-    product.value = {};
+    employee.value = {};
     submitted.value = false;
-    productDialog.value = true;
+    employeeDialog.value = true;
 }
 
 function hideDialog() {
-    productDialog.value = false;
+    employeeDialog.value = false;
     submitted.value = false;
 }
 
-function saveProduct() {
+async function saveEmployee() {
     submitted.value = true;
+    if (!employee.value.firstName?.trim() || !employee.value.lastName?.trim()) return;
 
-    if (product?.value.name?.trim()) {
-        if (product.value.id) {
-            product.value.inventoryStatus = product.value.inventoryStatus.value ? product.value.inventoryStatus.value : product.value.inventoryStatus;
-            products.value[findIndexById(product.value.id)] = product.value;
-            toast.add({ severity: 'success', summary: 'Successful', detail: 'Product Updated', life: 3000 });
+    try {
+        if (employee.value.id) {
+            const updated = await EmployeeService.updateEmployee(employee.value.id, employee.value);
+            const index = employees.value.findIndex(e => e.id === updated.id);
+            if (index !== -1) employees.value[index] = updated;
+            toast.add({ severity: 'success', summary: 'Updated', detail: 'Employee updated', life: 3000 });
         } else {
-            product.value.id = createId();
-            product.value.code = createId();
-            product.value.image = 'product-placeholder.svg';
-            product.value.inventoryStatus = product.value.inventoryStatus ? product.value.inventoryStatus.value : 'INSTOCK';
-            products.value.push(product.value);
-            toast.add({ severity: 'success', summary: 'Successful', detail: 'Product Created', life: 3000 });
+            const created = await EmployeeService.createEmployee(employee.value);
+            employees.value.push(created);
+            toast.add({ severity: 'success', summary: 'Created', detail: 'Employee created', life: 3000 });
         }
-
-        productDialog.value = false;
-        product.value = {};
+        hideDialog();
+        employee.value = {};
+    } catch (err) {
+        toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to save employee', life: 3000 });
+        console.error(err);
     }
 }
 
-function editProduct(prod) {
-    product.value = { ...prod };
-    productDialog.value = true;
+function editEmployee(emp) {
+    employee.value = { ...emp };
+    employeeDialog.value = true;
 }
 
-function confirmDeleteProduct(prod) {
-    product.value = prod;
-    deleteProductDialog.value = true;
+function confirmDeleteEmployee(emp) {
+    employee.value = emp;
+    deleteEmployeeDialog.value = true;
 }
 
-function deleteProduct() {
-    products.value = products.value.filter((val) => val.id !== product.value.id);
-    deleteProductDialog.value = false;
-    product.value = {};
-    toast.add({ severity: 'success', summary: 'Successful', detail: 'Product Deleted', life: 3000 });
-}
-
-function findIndexById(id) {
-    let index = -1;
-    for (let i = 0; i < products.value.length; i++) {
-        if (products.value[i].id === id) {
-            index = i;
-            break;
-        }
+async function deleteEmployee() {
+    try {
+        await EmployeeService.deleteEmployee(employee.value.id);
+        employees.value = employees.value.filter(e => e.id !== employee.value.id);
+        deleteEmployeeDialog.value = false;
+        selectedEmployees.value = selectedEmployees.value.filter(e => e.id !== employee.value.id);
+        toast.add({ severity: 'success', summary: 'Deleted', detail: 'Employee deleted', life: 3000 });
+    } catch (err) {
+        toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete employee', life: 3000 });
+        console.error(err);
     }
-
-    return index;
-}
-
-function createId() {
-    let id = '';
-    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    for (var i = 0; i < 5; i++) {
-        id += chars.charAt(Math.floor(Math.random() * chars.length));
-    }
-    return id;
-}
-
-function exportCSV() {
-    dt.value.exportCSV();
 }
 
 function confirmDeleteSelected() {
-    deleteProductsDialog.value = true;
+    deleteEmployeesDialog.value = true;
 }
 
-function deleteSelectedProducts() {
-    products.value = products.value.filter((val) => !selectedProducts.value.includes(val));
-    deleteProductsDialog.value = false;
-    selectedProducts.value = null;
-    toast.add({ severity: 'success', summary: 'Successful', detail: 'Products Deleted', life: 3000 });
-}
-
-function getStatusLabel(status) {
-    switch (status) {
-        case 'INSTOCK':
-            return 'success';
-
-        case 'LOWSTOCK':
-            return 'warn';
-
-        case 'OUTOFSTOCK':
-            return 'danger';
-
-        default:
-            return null;
+async function deleteSelectedEmployees() {
+    try {
+        const ids = selectedEmployees.value.map(e => e.id);
+        await Promise.all(ids.map(id => EmployeeService.deleteEmployee(id)));
+        employees.value = employees.value.filter(e => !ids.includes(e.id));
+        selectedEmployees.value = [];
+        deleteEmployeesDialog.value = false;
+        toast.add({ severity: 'success', summary: 'Deleted', detail: 'Selected employees deleted', life: 3000 });
+    } catch (err) {
+        toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete selected employees', life: 3000 });
+        console.error(err);
     }
 }
 </script>
@@ -139,151 +119,84 @@ function getStatusLabel(status) {
         <div class="card">
             <Toolbar class="mb-6">
                 <template #start>
-                    <Button label="New" icon="pi pi-plus" severity="secondary" class="mr-2" @click="openNew" />
-                    <Button label="Delete" icon="pi pi-trash" severity="secondary" @click="confirmDeleteSelected" :disabled="!selectedProducts || !selectedProducts.length" />
+                    <Button label="New" icon="pi pi-plus" class="mr-2" @click="openNew" />
+                    <Button label="Delete" icon="pi pi-trash" @click="confirmDeleteSelected" :disabled="!selectedEmployees.length" />
                 </template>
-
                 <template #end>
-                    <Button label="Export" icon="pi pi-upload" severity="secondary" @click="exportCSV($event)" />
+                    <Button label="Export" icon="pi pi-upload" @click="dt.value?.exportCSV()" />
                 </template>
             </Toolbar>
 
             <DataTable
                 ref="dt"
-                v-model:selection="selectedProducts"
-                :value="products"
+                v-model:selection="selectedEmployees"
+                :value="employees"
                 dataKey="id"
+                selectionMode="multiple"
                 :paginator="true"
                 :rows="10"
                 :filters="filters"
                 paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
-                :rowsPerPageOptions="[5, 10, 25]"
-                currentPageReportTemplate="Showing {first} to {last} of {totalRecords} products"
+                :rowsPerPageOptions="[5,10,25]"
+                currentPageReportTemplate="Showing {first} to {last} of {totalRecords} employees"
             >
                 <template #header>
-                    <div class="flex flex-wrap gap-2 items-center justify-between">
-                        <h4 class="m-0">Manage Products</h4>
-                        <IconField>
-                            <InputIcon>
-                                <i class="pi pi-search" />
-                            </InputIcon>
-                            <InputText v-model="filters['global'].value" placeholder="Search..." />
-                        </IconField>
+                    <div class="flex justify-between items-center">
+                        <h4 class="m-0">Manage Employees</h4>
+                        <InputText v-model="filters.global.value" placeholder="Search..." class="w-1/3" />
                     </div>
                 </template>
 
-                <Column selectionMode="multiple" style="width: 3rem" :exportable="false"></Column>
-                <Column field="code" header="Code" sortable style="min-width: 12rem"></Column>
-                <Column field="name" header="Name" sortable style="min-width: 16rem"></Column>
-                <Column header="Image">
+                <Column selectionMode="multiple" style="width: 3rem"></Column>
+                <Column field="firstName" header="First Name" sortable></Column>
+                <Column field="lastName" header="Last Name" sortable></Column>
+                <Column field="middleName" header="Middle Name" sortable></Column>
+                <Column field="roleInCompany" header="Role" sortable></Column>
+                <Column field="hiredAt" header="Hired At" sortable></Column>
+                <Column field="isOnHoliday" header="Holiday" sortable>
                     <template #body="slotProps">
-                        <img :src="`https://primefaces.org/cdn/primevue/images/product/${slotProps.data.image}`" :alt="slotProps.data.image" class="rounded" style="width: 64px" />
+                        <span>{{ slotProps.data.isOnHoliday ? 'Yes' : 'No' }}</span>
                     </template>
                 </Column>
-                <Column field="price" header="Price" sortable style="min-width: 8rem">
+                <Column :exportable="false">
                     <template #body="slotProps">
-                        {{ formatCurrency(slotProps.data.price) }}
-                    </template>
-                </Column>
-                <Column field="category" header="Category" sortable style="min-width: 10rem"></Column>
-                <Column field="rating" header="Reviews" sortable style="min-width: 12rem">
-                    <template #body="slotProps">
-                        <Rating :modelValue="slotProps.data.rating" :readonly="true" />
-                    </template>
-                </Column>
-                <Column field="inventoryStatus" header="Status" sortable style="min-width: 12rem">
-                    <template #body="slotProps">
-                        <Tag :value="slotProps.data.inventoryStatus" :severity="getStatusLabel(slotProps.data.inventoryStatus)" />
-                    </template>
-                </Column>
-                <Column :exportable="false" style="min-width: 12rem">
-                    <template #body="slotProps">
-                        <Button icon="pi pi-pencil" outlined rounded class="mr-2" @click="editProduct(slotProps.data)" />
-                        <Button icon="pi pi-trash" outlined rounded severity="danger" @click="confirmDeleteProduct(slotProps.data)" />
+                        <Button icon="pi pi-pencil" outlined rounded class="mr-2" @click="editEmployee(slotProps.data)" />
+                        <Button icon="pi pi-trash" outlined rounded severity="danger" @click="confirmDeleteEmployee(slotProps.data)" />
                     </template>
                 </Column>
             </DataTable>
         </div>
 
-        <Dialog v-model:visible="productDialog" :style="{ width: '450px' }" header="Product Details" :modal="true">
-            <div class="flex flex-col gap-6">
-                <img v-if="product.image" :src="`https://primefaces.org/cdn/primevue/images/product/${product.image}`" :alt="product.image" class="block m-auto pb-4" />
-                <div>
-                    <label for="name" class="block font-bold mb-3">Name</label>
-                    <InputText id="name" v-model.trim="product.name" required="true" autofocus :invalid="submitted && !product.name" fluid />
-                    <small v-if="submitted && !product.name" class="text-red-500">Name is required.</small>
-                </div>
-                <div>
-                    <label for="description" class="block font-bold mb-3">Description</label>
-                    <Textarea id="description" v-model="product.description" required="true" rows="3" cols="20" fluid />
-                </div>
-                <div>
-                    <label for="inventoryStatus" class="block font-bold mb-3">Inventory Status</label>
-                    <Select id="inventoryStatus" v-model="product.inventoryStatus" :options="statuses" optionLabel="label" placeholder="Select a Status" fluid></Select>
-                </div>
-
-                <div>
-                    <span class="block font-bold mb-4">Category</span>
-                    <div class="grid grid-cols-12 gap-4">
-                        <div class="flex items-center gap-2 col-span-6">
-                            <RadioButton id="category1" v-model="product.category" name="category" value="Accessories" />
-                            <label for="category1">Accessories</label>
-                        </div>
-                        <div class="flex items-center gap-2 col-span-6">
-                            <RadioButton id="category2" v-model="product.category" name="category" value="Clothing" />
-                            <label for="category2">Clothing</label>
-                        </div>
-                        <div class="flex items-center gap-2 col-span-6">
-                            <RadioButton id="category3" v-model="product.category" name="category" value="Electronics" />
-                            <label for="category3">Electronics</label>
-                        </div>
-                        <div class="flex items-center gap-2 col-span-6">
-                            <RadioButton id="category4" v-model="product.category" name="category" value="Fitness" />
-                            <label for="category4">Fitness</label>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-12 gap-4">
-                    <div class="col-span-6">
-                        <label for="price" class="block font-bold mb-3">Price</label>
-                        <InputNumber id="price" v-model="product.price" mode="currency" currency="USD" locale="en-US" fluid />
-                    </div>
-                    <div class="col-span-6">
-                        <label for="quantity" class="block font-bold mb-3">Quantity</label>
-                        <InputNumber id="quantity" v-model="product.quantity" integeronly fluid />
-                    </div>
-                </div>
+        <!-- Employee Dialog -->
+        <Dialog v-model:visible="employeeDialog" header="Employee Details" :modal="true" :style="{ width: '450px' }">
+            <div class="flex flex-col gap-4">
+                <InputText v-model.trim="employee.firstName" placeholder="First Name" />
+                <InputText v-model.trim="employee.lastName" placeholder="Last Name" />
+                <InputText v-model.trim="employee.middleName" placeholder="Middle Name" />
+                <InputText v-model.trim="employee.roleInCompany" placeholder="Role" />
+                <InputText type="date" v-model="employee.hiredAt" />
+                <Checkbox v-model="employee.isOnHoliday" /> On Holiday
             </div>
-
             <template #footer>
-                <Button label="Cancel" icon="pi pi-times" text @click="hideDialog" />
-                <Button label="Save" icon="pi pi-check" @click="saveProduct" />
+                <Button label="Cancel" text icon="pi pi-times" @click="hideDialog" />
+                <Button label="Save" icon="pi pi-check" @click="saveEmployee" />
             </template>
         </Dialog>
 
-        <Dialog v-model:visible="deleteProductDialog" :style="{ width: '450px' }" header="Confirm" :modal="true">
-            <div class="flex items-center gap-4">
-                <i class="pi pi-exclamation-triangle !text-3xl" />
-                <span v-if="product"
-                    >Are you sure you want to delete <b>{{ product.name }}</b
-                    >?</span
-                >
-            </div>
+        <!-- Delete Dialogs -->
+        <Dialog v-model:visible="deleteEmployeeDialog" header="Confirm" :modal="true" :style="{ width: '400px' }">
+            <p>Are you sure you want to delete <b>{{ employee.firstName }} {{ employee.lastName }}</b>?</p>
             <template #footer>
-                <Button label="No" icon="pi pi-times" text @click="deleteProductDialog = false" />
-                <Button label="Yes" icon="pi pi-check" @click="deleteProduct" />
+                <Button label="No" text icon="pi pi-times" @click="deleteEmployeeDialog = false" />
+                <Button label="Yes" icon="pi pi-check" @click="deleteEmployee" />
             </template>
         </Dialog>
 
-        <Dialog v-model:visible="deleteProductsDialog" :style="{ width: '450px' }" header="Confirm" :modal="true">
-            <div class="flex items-center gap-4">
-                <i class="pi pi-exclamation-triangle !text-3xl" />
-                <span v-if="product">Are you sure you want to delete the selected products?</span>
-            </div>
+        <Dialog v-model:visible="deleteEmployeesDialog" header="Confirm" :modal="true" :style="{ width: '400px' }">
+            <p>Are you sure you want to delete the selected employees?</p>
             <template #footer>
-                <Button label="No" icon="pi pi-times" text @click="deleteProductsDialog = false" />
-                <Button label="Yes" icon="pi pi-check" text @click="deleteSelectedProducts" />
+                <Button label="No" text icon="pi pi-times" @click="deleteEmployeesDialog = false" />
+                <Button label="Yes" icon="pi pi-check" @click="deleteSelectedEmployees" />
             </template>
         </Dialog>
     </div>

@@ -3,12 +3,13 @@ import FloatingConfigurator from '@/components/FloatingConfigurator.vue'
 import { ref, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 import { useToast } from 'primevue/usetoast'
+import { useAuthStore } from '@/stores/auth'
 
 const username = ref('')  // renamed from email to username
 const password = ref('')
 const checked = ref(false)
 const loading = ref(false)
-
+const authStore = useAuthStore()
 const { proxy } = getCurrentInstance()
 const router = useRouter()
 const toast = useToast()
@@ -27,14 +28,13 @@ const handleLogin = async () => {
     try {
         loading.value = true
         const response = await proxy.$api.post('/api/login', {
-            username: username.value, // match backend
+            username: username.value,
             password: password.value,
         })
 
         const { token, user } = response.data
 
-        localStorage.setItem('token', token)
-        localStorage.setItem('user', JSON.stringify(user))
+        authStore.setAuth(token, user)  // <-- store token and user in Pinia
 
         toast.add({
             severity: 'success',
@@ -43,7 +43,7 @@ const handleLogin = async () => {
             life: 3000,
         })
 
-        router.push('/')
+        router.push('/pages/crud')
     } catch (err) {
         console.error(err)
         toast.add({
