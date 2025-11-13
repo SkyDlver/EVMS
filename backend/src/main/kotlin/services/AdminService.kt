@@ -1,5 +1,7 @@
 package team.mediagroup.services
 
+import org.jetbrains.exposed.sql.andWhere
+import org.jetbrains.exposed.sql.selectAll
 import org.jetbrains.exposed.sql.transactions.transaction
 import team.mediagroup.models.*
 import team.mediagroup.dto.UserCreateRequest
@@ -9,8 +11,38 @@ import team.mediagroup.dto.UserResponse
 class AdminService(private val authService: AuthService) {
 
     // List all users
-    fun getAllUsers(): List<UserResponse> = transaction {
-        User.all().map {
+    fun getAllUsers(
+        role: String? = null,
+        departmentId: Int? = null,
+        username: String? = null
+    ): List<UserResponse> = transaction {
+        // Build the query dynamically
+        var query = Users.selectAll()
+
+        if (role != null) {
+            query = query.andWhere { Users.role eq Role.valueOf(role.uppercase()) }
+        }
+
+        if (departmentId != null) {
+            query = query.andWhere { Users.departmentId eq departmentId }
+        }
+
+        if (!username.isNullOrBlank()) {
+            query = query.andWhere { Users.username like "%$username%" }
+        }
+
+        query.map {
+            UserResponse(
+                id = it[Users.id].value,
+                username = it[Users.username],
+                role = it[Users.role].name,
+                departmentId = it[Users.departmentId]
+            )
+        }
+    }
+
+    fun getUserById(id: Int): UserResponse? = transaction {
+        User.findById(id)?.let {
             UserResponse(
                 id = it.id.value,
                 username = it.username,
@@ -19,6 +51,7 @@ class AdminService(private val authService: AuthService) {
             )
         }
     }
+
 
     // Create a new user
     fun createUser(request: UserCreateRequest) = transaction {

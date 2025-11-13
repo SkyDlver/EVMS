@@ -14,10 +14,32 @@ fun Route.adminRoutes(adminService: AdminService) {
     authenticate("auth-jwt") {
         route("/api/admin") {
             get("/users") {
-                val principal = call.principal<UserPrincipal>()!!
+                val principal = call.principal<UserPrincipal>() ?: return@get call.respond(HttpStatusCode.Unauthorized)
                 if (principal.role != Role.ADMIN) return@get call.respondText("Forbidden", status = io.ktor.http.HttpStatusCode.Forbidden)
 
-                call.respond(adminService.getAllUsers())
+                // Extract filters from query params
+                val role = call.request.queryParameters["role"]
+                val departmentId = call.request.queryParameters["departmentId"]?.toIntOrNull()
+                val username = call.request.queryParameters["username"]
+
+                val users = adminService.getAllUsers(role, departmentId, username)
+                call.respond(users)
+            }
+
+            get("/users/{id}") {
+                val principal = call.principal<UserPrincipal>() ?:
+                return@get call.respond(HttpStatusCode.Unauthorized)
+
+                if (principal.role != Role.ADMIN)
+                    return@get call.respond(HttpStatusCode.Forbidden)
+
+                val id = call.parameters["id"]?.toIntOrNull() ?:
+                return@get call.respond(HttpStatusCode.BadRequest, "Invalid user ID")
+
+                val user = adminService.getUserById(id)
+                    ?: return@get call.respond(HttpStatusCode.NotFound, "User not found")
+
+                call.respond(user)
             }
 
             post("/users") {
