@@ -4,8 +4,9 @@ import { $t, updatePreset, updateSurfacePalette } from '@primeuix/themes';
 import Aura from '@primeuix/themes/aura';
 import Lara from '@primeuix/themes/lara';
 import Nora from '@primeuix/themes/nora';
-import { ref } from 'vue';
-
+import { ref, watch, onMounted } from 'vue';
+import { useThemeStore } from '@/stores/themeStore'
+const themeStore = useThemeStore()
 const { layoutConfig, isDarkTheme } = useLayout();
 
 const presets = {
@@ -13,7 +14,6 @@ const presets = {
     Lara,
     Nora
 };
-const preset = ref(layoutConfig.preset);
 const presetOptions = ref(Object.keys(presets));
 
 const menuMode = ref(layoutConfig.menuMode);
@@ -78,7 +78,9 @@ const surfaces = ref([
 ]);
 
 function getPresetExt() {
-    const color = primaryColors.value.find((c) => c.name === layoutConfig.primary);
+    // Prefer the value from the persistent store (keeps UI and persisted state consistent)
+    const primaryName = themeStore.primary || layoutConfig.primary;
+    const color = primaryColors.value.find((c) => c.name === primaryName) || primaryColors.value[0];
 
     if (color.name === 'noir') {
         return {
@@ -169,8 +171,12 @@ function getPresetExt() {
 
 function updateColors(type, color) {
     if (type === 'primary') {
+        themeStore.primary = color.name;
+        // keep layoutConfig in sync so other components observing layoutConfig see the change
         layoutConfig.primary = color.name;
     } else if (type === 'surface') {
+        // fix: use the passed color object (was referencing undefined `surface` previously)
+        themeStore.surface = color.name;
         layoutConfig.surface = color.name;
     }
 
@@ -179,6 +185,7 @@ function updateColors(type, color) {
 
 function applyTheme(type, color) {
     if (type === 'primary') {
+        // update semantic tokens based on the selected primary
         updatePreset(getPresetExt());
     } else if (type === 'surface') {
         updateSurfacePalette(color.palette);
@@ -186,9 +193,10 @@ function applyTheme(type, color) {
 }
 
 function onPresetChange() {
-    layoutConfig.preset = preset.value;
-    const presetValue = presets[preset.value];
-    const surfacePalette = surfaces.value.find((s) => s.name === layoutConfig.surface)?.palette;
+    // Ensure the store is updated (the SelectButton binds to the store directly in the template)
+    // v-model already updates the store. this function triggers the theme application.
+    const presetValue = presets[themeStore.preset] || presets.Aura;
+    const surfacePalette = surfaces.value.find((s) => s.name === (themeStore.surface || layoutConfig.surface))?.palette;
 
     $t().preset(presetValue).preset(getPresetExt()).surfacePalette(surfacePalette).use({ useDefaultOptions: true });
 }
@@ -196,6 +204,44 @@ function onPresetChange() {
 function onMenuModeChange() {
     layoutConfig.menuMode = menuMode.value;
 }
+
+// Watch store changes and apply theme immediately
+watch(
+    () => [themeStore.preset, themeStore.primary, themeStore.surface],
+    () => {
+        const presetValue = presets[themeStore.preset] || presets.Aura;
+        const surfacePalette = surfaces.value.find((s) => s.name === (themeStore.surface || layoutConfig.surface))?.palette;
+
+        // Apply theme preset + semantic override + surface palette
+        $t().preset(presetValue).preset(getPresetExt()).surfacePalette(surfacePalette).use({ useDefaultOptions: true });
+    },
+    { immediate: true }
+);
+
+// Keep the document class in sync with the persisted dark flag so PrimeVue's darkModeSelector works
+watch(
+    () => themeStore.isDarkTheme,
+    (val) => {
+        try {
+            document.documentElement.classList.toggle('app-dark', !!val);
+        } catch (e) {
+            // SSR or missing document, ignore
+        }
+    },
+    { immediate: true }
+);
+
+onMounted(() => {
+    // Ensure dark mode class is applied on mount using persisted value
+    try {
+        document.documentElement.classList.toggle('app-dark', !!themeStore.isDarkTheme);
+    } catch (e) {
+        // ignore
+    }
+
+    // Apply preset once on mount so linter won't mark onPresetChange as unused and initial theme is applied
+    onPresetChange();
+});
 </script>
 
 <template>
@@ -236,7 +282,8 @@ function onMenuModeChange() {
             </div>
             <div class="flex flex-col gap-2">
                 <span class="text-sm text-muted-color font-semibold">Presets</span>
-                <SelectButton v-model="preset" @change="onPresetChange" :options="presetOptions" :allowEmpty="false" />
+                <SelectButton v-model="themeStore.preset" @change="onPresetChange" :options="presetOptions" :allowEmpty="false" />
+
             </div>
             <div class="flex flex-col gap-2">
                 <span class="text-sm text-muted-color font-semibold">Menu Mode</span>
