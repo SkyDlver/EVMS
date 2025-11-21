@@ -5,7 +5,7 @@ export const useThemeStore = defineStore('theme', {
     state: () => ({
         preset: 'Aura',
         primary: 'emerald',
-        surface: 'slate',
+        surface: null,
         isDarkTheme: false
     }),
     actions: {
