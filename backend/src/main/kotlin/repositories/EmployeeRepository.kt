@@ -10,20 +10,30 @@ import team.mediagroup.models.*
 
 class EmployeeRepository {
 
-    fun findAll(page: Int = 1, size: Int = 50, sort: Column<*> = Employees.id): List<Employee> = transaction {
+    fun findAll(
+        page: Int = 1,
+        size: Int = 50,
+        sort: Column<*> = Employees.id,
+        order: SortOrder = SortOrder.ASC
+    ): List<Employee> = transaction {
         Employee.all()
-            .orderBy(sort to SortOrder.ASC)
+            .orderBy(sort to order)
             .limit(size, offset = ((page - 1) * size).toLong())
             .toList()
     }
 
-    fun findByDepartment(departmentId: Int, page: Int = 1, size: Int = 50, sort: Column<*> = Employees.id): List<Employee> = transaction {
+    fun findByDepartment(
+        departmentId: Int,
+        page: Int = 1,
+        size: Int = 50,
+        sort: Column<*> = Employees.id,
+        order: SortOrder = SortOrder.ASC
+    ): List<Employee> = transaction {
         Employee.find { Employees.departmentId eq departmentId }
-            .orderBy(sort to SortOrder.ASC)
+            .orderBy(sort to order)
             .limit(size, offset = ((page - 1) * size).toLong())
             .toList()
     }
-
 
     fun findById(id: Int): Employee? = transaction {
         Employee.findById(id)
@@ -32,7 +42,7 @@ class EmployeeRepository {
     fun existsDuplicate(
         firstName: String,
         lastName: String,
-        middleName: String?,
+        middleName: String? = null,
         departmentId: Int,
         excludeId: Int? = null
     ): Boolean = transaction {
@@ -56,7 +66,7 @@ class EmployeeRepository {
     fun createEmployee(
         firstName: String,
         lastName: String,
-        middleName: String?,
+        middleName: String? = null,
         departmentId: Int,
         roleInCompany: String,
         hiredAt: java.time.LocalDate,

@@ -6,6 +6,7 @@ import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.sql.SortOrder
 import team.mediagroup.dto.EmployeeUpdateRequest
 import team.mediagroup.models.Role
 import team.mediagroup.models.UserPrincipal
@@ -24,20 +25,32 @@ fun Route.employeeRoutes(employeeService: EmployeeService) {
                 val departmentId = call.request.queryParameters["departmentId"]?.toIntOrNull()
                 val page = call.request.queryParameters["page"]?.toIntOrNull() ?: 1
                 val size = call.request.queryParameters["size"]?.toIntOrNull() ?: 50
-                val sortParam = call.request.queryParameters["sort"] ?: "id"
+                val sortParam = call.request.queryParameters["sort"] ?: "id,asc"
+
+                // Split sortParam into field and direction
+                val (sortField, sortDir) = sortParam.split(",").let {
+                    it[0].lowercase() to (it.getOrNull(1)?.lowercase() ?: "asc")
+                }
 
                 // Map string to actual Exposed Column
-                val sortColumn: Column<*> = when (sortParam.lowercase()) {
+                val sortColumn: Column<*> = when (sortField) {
                     "firstname" -> Employees.firstName
                     "lastname" -> Employees.lastName
                     "hiredat" -> Employees.hiredAt
                     "departmentid" -> Employees.departmentId
+                    "roleincompany" -> Employees.roleInCompany
                     else -> Employees.id
                 }
 
-                val employees = employeeService.getEmployeesForUser(principal, departmentId, page, size, sortColumn)
+                // Determine sort order
+                val order = if (sortDir == "desc") SortOrder.DESC else SortOrder.ASC
+
+                // Fetch employees with pagination and sorting
+                val employees = employeeService.getEmployeesForUser(principal, departmentId, page, size, sortColumn, order)
+
                 call.respond(HttpStatusCode.OK, employees)
             }
+
 
             // GET /api/employees/{id}
             get("/{id}") {

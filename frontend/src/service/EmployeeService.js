@@ -1,5 +1,5 @@
 // src/service/EmployeeService.js
-import axios from 'axios';
+import axios from '@/plugins/axios';
 
 export const EmployeeService = {
     async getEmployees({ departmentId, page = 1, size = 10, sort = 'id' } = {}) {

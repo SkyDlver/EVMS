@@ -24,18 +24,35 @@ const submitted = ref(false);
 const filters = ref({
     global: { value: null, matchMode: FilterMatchMode.CONTAINS }
 });
-
+const totalRecords = ref(0);
+const rows = ref(10);
+const first = ref(0);
+const sortField = ref('id');
+const sortOrder = ref(1); // 1 = asc, -1 = desc
 // Load employees on mount
-onMounted(() => loadEmployees());
+onMounted(() => loadEmployeesLazy());
 
-async function loadEmployees() {
+async function loadEmployeesLazy(event = {}) {
     try {
-        const data = await EmployeeService.getEmployees();
-        employees.value = Array.isArray(data) ? data : []; // ensure array
+        const page = event.first ? event.first / event.rows : 0;
+        const size = event.rows || rows.value;
+        const sort = event.sortField ? `${event.sortField},${event.sortOrder === 1 ? 'asc' : 'desc'}` : 'id,asc';
+
+        const data = await EmployeeService.getEmployees({ page, size, sort });
+        employees.value = data.content || data; // adjust according to backend response
+        totalRecords.value = data.totalElements || employees.value.length;
     } catch (err) {
         toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to load employees', life: 3000 });
         console.error(err);
     }
+}
+
+function onPage(event) {
+    loadEmployeesLazy(event);
+}
+
+function onSort(event) {
+    loadEmployeesLazy(event);
 }
 
 function openNew() {
@@ -134,12 +151,18 @@ async function deleteSelectedEmployees() {
                 dataKey="id"
                 selectionMode="multiple"
                 :paginator="true"
-                :rows="10"
-                :filters="filters"
+                :rows="rows"
+                :totalRecords="totalRecords"
+                :lazy="true"
+                @page="onPage"
+                @sort="onSort"
+                :sortField="sortField"
+                :sortOrder="sortOrder"
                 paginatorTemplate="FirstPageLink PrevPageLink PageLinks NextPageLink LastPageLink CurrentPageReport RowsPerPageDropdown"
                 :rowsPerPageOptions="[5,10,25]"
                 currentPageReportTemplate="Showing {first} to {last} of {totalRecords} employees"
             >
+
                 <template #header>
                     <div class="flex justify-between items-center">
                         <h4 class="m-0">Manage Employees</h4>

@@ -1,6 +1,7 @@
 package team.mediagroup.services
 
 import org.jetbrains.exposed.sql.Column
+import org.jetbrains.exposed.sql.SortOrder
 import org.jetbrains.exposed.sql.decimalParam
 import team.mediagroup.dto.EmployeeResponse
 import team.mediagroup.dto.EmployeeUpdateRequest
@@ -24,17 +25,19 @@ class EmployeeService(
         departmentId: Int? = null,
         page: Int = 1,
         size: Int = 50,
-        sort: Column<*> = Employees.id
+        sort: Column<*> = Employees.id,
+        order: SortOrder = SortOrder.ASC
     ): List<EmployeeResponse> = transaction {
         val employees = when (user.role) {
-            Role.ADMIN -> repository.findAll(page = page, size = size, sort = sort)
+            Role.ADMIN -> repository.findAll(page = page, size = size, sort = sort, order = order)
             Role.HR, Role.VIEWER -> {
                 val deptId = departmentId ?: user.departmentId ?: return@transaction emptyList()
-                repository.findByDepartment(deptId, page = page, size = size, sort = sort)
+                repository.findByDepartment(deptId, page = page, size = size, sort = sort, order = order)
             }
         }
         employees.map { it.toResponse() }
     }
+
 
 
 
