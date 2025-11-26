@@ -24,7 +24,7 @@ api.interceptors.response.use(
         if (error.response?.status === 401) {
             const authStore = useAuthStore()
             authStore.clearAuth()
-            window.location.href = '/login' // redirect to login
+            window.location.href = '/auth/login' // redirect to login
         }
         return Promise.reject(error)
     }

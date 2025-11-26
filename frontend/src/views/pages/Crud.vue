@@ -39,7 +39,7 @@ async function loadEmployeesLazy(event = {}) {
         const sort = event.sortField ? `${event.sortField},${event.sortOrder === 1 ? 'asc' : 'desc'}` : 'id,asc';
 
         const data = await EmployeeService.getEmployees({ page, size, sort });
-        employees.value = data.content || data; // adjust according to backend response
+        employees.value = data.content || data;
         totalRecords.value = data.totalElements || employees.value.length;
     } catch (err) {
         toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to load employees', life: 3000 });

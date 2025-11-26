@@ -34,7 +34,7 @@ const handleLogin = async () => {
 
         const { token, user } = response.data
 
-        authStore.setAuth(token, user)  // <-- store token and user in Pinia
+        authStore.setAuth(token, user, checked.value)
 
         toast.add({
             severity: 'success',
